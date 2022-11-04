@@ -1,0 +1,26 @@
+numpy
+pandas
+
+tiffile
+
+scikit-image
+scipy
+
+ipython
+jupyter
+
+pyqt5
+
+cellpose[gui]
+
+aicsimageio
+
+# aicsimageio czi reading requires extra install
+aicspylibczi>=3.0.5
+fsspec>=2022.7.1
+
+napari
+# for now, install locally with pip (in a dev branch)
+#napari_layer_table
+
+plotly
