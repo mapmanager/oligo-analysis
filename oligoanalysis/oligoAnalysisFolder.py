@@ -10,7 +10,7 @@ from oligoanalysis._logger import logger
 
 class oligoAnalysisFolder():
 
-    def __init__(self, folderPath : str):
+    def __init__(self, folderPath : str = None):
         """
         
         Args:
@@ -70,7 +70,7 @@ class oligoAnalysisFolder():
         return df.to_dict()
     
     def getOligoAnalysis(self, file : str):
-        """Given a raw file name, return the oligoAnalysos.
+        """Given a raw file name, return the oligoAnalysis.
         
         Make if necc.
         """

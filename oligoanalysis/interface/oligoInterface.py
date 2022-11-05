@@ -1,6 +1,7 @@
 """
 20221101
 """
+import os
 import time
 from typing import List, Union  # , Callable, Iterator, Optional
 
@@ -10,6 +11,8 @@ import numpy as np
 import skimage.measure
 
 from qtpy import QtWidgets, QtCore, QtGui
+
+import qdarkstyle
 
 import napari
 import napari_layer_table  # our custom plugin (installed from source)
@@ -26,29 +29,6 @@ from oligoanalysis.interface._data_model import pandasModel
 from oligoanalysis.interface import bHistogramWidget
 
 from oligoanalysis._logger import logger
-
-def old_runPlugin(viewer : napari.Viewer, layer, onAddCallback=None):
-    """Run the napari layer table plugin on one layer.
-    
-    Args:
-        viewer: A napari viewer
-        layer:
-        onAddCallback:
-        """
-    # create the plugin
-    # ltp is type: napari_layer_table._my_widget.LayerTablePlugin
-    ltp = napari_layer_table.LayerTablePlugin(viewer, oneLayer=layer, onAddCallback=onAddCallback)
-    #ltp.signalDataChanged.connect(on_user_edit_points2)
-    
-    # show
-    area = 'right'
-    name = layer.name
-    _dockWidget = viewer.window.add_dock_widget(ltp, area=area, name=name)
-    
-    # remove
-    #viewer.window.remove_dock_widget(_dockWidget) 
-    
-    return ltp
 
 class oligoInterface(QtWidgets.QWidget):
 
@@ -68,13 +48,21 @@ class oligoInterface(QtWidgets.QWidget):
         sliceNumber (int)
     """
 
-    def __init__(self, viewer : napari.Viewer, folderPath : str, parent = None):
+    def __init__(self, viewer : napari.Viewer, folderPath : str = None, parent = None):
+        """
+        Args:
+            viewer:
+            folderPath:
+        """
         super().__init__(parent)
         self._viewer = viewer
+        
+        # self._folderPath = folderPath
+        self._folderPath : str = None
 
-        self._folderPath = folderPath
-
-        self._oligoAnalysisFolder = oligoAnalysisFolder(folderPath)
+        self._oligoAnalysisFolder : oligoAnalysisFolder = None
+        # if os.path.isdir(folderPath):
+        #     self._oligoAnalysisFolder = oligoAnalysisFolder(folderPath)
 
         self._layerTableDocWidget = None
         
@@ -88,13 +76,39 @@ class oligoInterface(QtWidgets.QWidget):
         self._buildingNapari = False
         # to pause updates, set True when adding/removing viewer layers
 
-        # respond to change in layer
+        # respond to viewer switching layer
         self._viewer.layers.selection.events.changed.connect(self.slot_selectLayer)
 
-        # respond to changes in image slice
+        # respond to changes in viewer image slice
         self._viewer.dims.events.current_step.connect(self.slot_setSlice)
+        
+        #self.openOligoAnalysisPlugin()
+
+        self._ltp = None
+
+        self.switchFolder(folderPath)
 
         self.updateStatus('Ready')
+
+    def switchFolder(self, folderPath : str):
+        if folderPath is None or not os.path.isdir(folderPath):
+            #raise ValueError(f'Did not find folder: {folderPath}')
+            return
+
+        self._folderPath : str = folderPath
+        
+        self._oligoAnalysisFolder = oligoAnalysisFolder(folderPath)
+
+        self._selectedFile : str = None
+        self._selectedRow : int = None
+
+        # this is a full refresh of table
+        if self._oligoAnalysisFolder is not None:
+            dfAnalysis = self._oligoAnalysisFolder.getAnalysisDataFrame(removeColumns=True)
+            myModel = pandasModel(dfAnalysis)
+            self._analysisTable.mySetModel(myModel)
+
+        #self.refreshAnalysisTable()
 
     def slot_setSlice(self, event):
         """Respond to change in image slice slider in viewer.
@@ -145,8 +159,32 @@ class oligoInterface(QtWidgets.QWidget):
 
             # TODO: when our hist signals contrast slider change,
             #   change layer.events.contrast_limits
+            
+            # want something like this
+            #_activeLayer.events.contrast_limits.connect(self._bHistogramWidget.slot_setContrast)
+            # this for now
+            # _activeLayer.events.contrast_limits.connect(self.slot_setContrast)
+            
+            # does not work
+            # self._bHistogramWidget.signal_contrast_limits.connect(_activeLayer.events.contrast_limits)
+
             logger.info(f'  -->> emit signalSelectImageLayer _data.shape {_data.shape} _name:{_name}')
             self.signalSelectImageLayer.emit(_data, _name, _colorMapName)
+
+            # todo: set the hist signal signalContrastChange
+            # to set the contrast of napari layer _activeLayer
+
+    def slot_setContrast(self, event : napari.utils.events.event.Event):
+        """Received when napari contrast slider is adjusted.
+        """
+        logger.info(f'{type(event)} {event.type}')
+        
+        # _dir = dir(event)
+        # for one in _dir:
+        #     print(one)
+        _activeLayer = self._viewer.layers.selection.active
+        contrast_limits = _activeLayer.contrast_limits
+        print('  contrast_limits:', contrast_limits)
 
     def _buildTableView(self):
         #  table/list view
@@ -155,27 +193,32 @@ class oligoInterface(QtWidgets.QWidget):
         # TODO (Cudmore) Figure out how to set font of (cell, row/vert header, col/horz header)
         #   and reduce row size to match font
         _fontSize = 11
-        aFont = QtGui.QFont('Arial', _fontSize)
-        _myTableView.setFont(aFont)  # set the font of the cells
-        _myTableView.horizontalHeader().setFont(aFont)
-        _myTableView.verticalHeader().setFont(aFont)
+        _myTableView.setFontSize(_fontSize)
 
-        _myTableView.verticalHeader().setDefaultSectionSize(_fontSize)  # rows
-        _myTableView.verticalHeader().setMaximumSectionSize(_fontSize)
-        #_myTableView.horizontalHeader().setDefaultSectionSize(_fontSize)  # rows
-        #_myTableView.horizontalHeader().setMaximumSectionSize(_fontSize)
-        _myTableView.resizeRowsToContents()
+        # aFont = QtGui.QFont('Arial', _fontSize)
+        # _myTableView.setFont(aFont)  # set the font of the cells
+        # _myTableView.horizontalHeader().setFont(aFont)
+        # _myTableView.verticalHeader().setFont(aFont)
+
+        # _myTableView.verticalHeader().setDefaultSectionSize(_fontSize)  # rows
+        # _myTableView.verticalHeader().setMaximumSectionSize(_fontSize)
+        # #_myTableView.horizontalHeader().setDefaultSectionSize(_fontSize)  # rows
+        # #_myTableView.horizontalHeader().setMaximumSectionSize(_fontSize)
+        # _myTableView.resizeRowsToContents()
 
         _myTableView.signalSelectionChanged.connect(self.on_table_selection)
 
         # this is a full refresh of table
-        dfAnalysis = self._oligoAnalysisFolder.getAnalysisDataFrame(removeColumns=True)
-        myModel = pandasModel(dfAnalysis)
-        _myTableView.mySetModel(myModel)
+        if self._oligoAnalysisFolder is not None:
+            dfAnalysis = self._oligoAnalysisFolder.getAnalysisDataFrame(removeColumns=True)
+            myModel = pandasModel(dfAnalysis)
+            _myTableView.mySetModel(myModel)
 
         return _myTableView
 
     def _buildGui(self):
+        _alignLeft = QtCore.Qt.AlignLeft
+
         vLayout = QtWidgets.QVBoxLayout()
 
         # top row of controls
@@ -183,22 +226,24 @@ class oligoInterface(QtWidgets.QWidget):
 
         aButton = QtWidgets.QPushButton('Load Folder')
         aButton.clicked.connect(self.on_load_folder_button)
-        hLayout.addWidget(aButton)
+        hLayout.addWidget(aButton, alignment=_alignLeft)
 
         aButton = QtWidgets.QPushButton('Save')
         aButton.clicked.connect(self.on_save_button)
-        hLayout.addWidget(aButton)
+        hLayout.addWidget(aButton, alignment=_alignLeft)
 
         # checkboxes to toggle interface
         aCheckbox = QtWidgets.QCheckBox('Histogram')
-        aCheckbox.setChecked(True)
+        aCheckbox.setChecked(False)
         aCheckbox.stateChanged.connect(self.on_histogram_checkbox)
-        hLayout.addWidget(aCheckbox)
+        hLayout.addWidget(aCheckbox, alignment=_alignLeft)
 
         aCheckbox = QtWidgets.QCheckBox('Points')
         aCheckbox.setChecked(True)
         aCheckbox.stateChanged.connect(self.on_points_checkbox)
-        hLayout.addWidget(aCheckbox)
+        hLayout.addWidget(aCheckbox, alignment=_alignLeft)
+
+        hLayout.addStretch()  # required for alignment=_alignLeft 
 
         vLayout.addLayout(hLayout)
 
@@ -221,37 +266,42 @@ class oligoInterface(QtWidgets.QWidget):
 
         # red mask
         hLayout = QtWidgets.QHBoxLayout()
+
         aButton = QtWidgets.QPushButton('Make Red Mask')
         aButton.clicked.connect(self.on_make_red_mask)
-        hLayout.addWidget(aButton)
+        hLayout.addWidget(aButton, alignment=_alignLeft)
 
-        self._sigmaLineWidget = QtWidgets.QLineEdit('1')
-        self._sigmaLineWidget.editingFinished.connect(self.on_edit_sigma)
-        hLayout.addWidget(self._sigmaLineWidget)
+        aLabel = QtWidgets.QLabel('Gaussian Sigma')
+        hLayout.addWidget(aLabel)
+        self._sigmaLineEditWidget = QtWidgets.QLineEdit('1')
+        self._sigmaLineEditWidget.editingFinished.connect(self.on_edit_sigma)
+        hLayout.addWidget(self._sigmaLineEditWidget, alignment=_alignLeft)
 
-        vLayout.addLayout(hLayout)
+        #vLayout.addLayout(hLayout)
 
         # ring mask
-        hLayout = QtWidgets.QHBoxLayout()
+        #hLayout = QtWidgets.QHBoxLayout()
         aButton = QtWidgets.QPushButton('Make Ring Mask')
         aButton.clicked.connect(self.on_make_ring_mask)
-        hLayout.addWidget(aButton)
+        hLayout.addWidget(aButton, alignment=_alignLeft)
 
         aLabel = QtWidgets.QLabel('Erode')
-        hLayout.addWidget(aLabel)
+        hLayout.addWidget(aLabel, alignment=_alignLeft)
         self._erodeSpinBox = QtWidgets.QSpinBox()
         self._erodeSpinBox.setMinimum(0)
         self._erodeSpinBox.setValue(1)
         # self._erodeSpinBox.valueChanged.connect(self.on_edit_erode_dilate)
-        hLayout.addWidget(self._erodeSpinBox)
+        hLayout.addWidget(self._erodeSpinBox, alignment=_alignLeft)
 
         aLabel = QtWidgets.QLabel('Dilate')
-        hLayout.addWidget(aLabel)
+        hLayout.addWidget(aLabel, alignment=_alignLeft)
         self._dilateSpinBox = QtWidgets.QSpinBox()
         self._dilateSpinBox.setMinimum(0)
         self._dilateSpinBox.setValue(1)
         # self._dilateSpinBox.valueChanged.connect(self.on_edit_erode_dilate)
-        hLayout.addWidget(self._dilateSpinBox)
+        hLayout.addWidget(self._dilateSpinBox, alignment=_alignLeft)
+
+        hLayout.addStretch()  # required for alignment=_alignLeft 
 
         vLayout.addLayout(hLayout)
 
@@ -262,6 +312,7 @@ class oligoInterface(QtWidgets.QWidget):
         # need pointer to set _imgData on switching to an image layer
         _empty = np.zeros((1,1,1))
         self._bHistogramWidget = bHistogramWidget(_empty)
+        self._bHistogramWidget.setVisible(False)
         self.signalSelectImageLayer.connect(self._bHistogramWidget.slot_setData)
         self.signalSetSlice.connect(self._bHistogramWidget.slot_setSlice)
         vLayout.addWidget(self._bHistogramWidget)
@@ -274,19 +325,20 @@ class oligoInterface(QtWidgets.QWidget):
         self._statusWidget.setText(text)
 
     def refreshAnalysisTable(self):
-        dfAnalysis = self._oligoAnalysisFolder.getAnalysisDataFrame(removeColumns=True)
-        #self._analysisTable.value = dfAnalysis
         
-        # want to just set one row
-        # self._analysisTable.myModel.mySetRow(rowList, df)
-        # mySetRow(self, rowList: List[int], df: pd.DataFrame):
-
-        # self._selectedFile
-        # self._selectedRow
+        logger.info('')
+        
+        dfAnalysis = self._oligoAnalysisFolder.getAnalysisDataFrame(removeColumns=True)
 
         rowList = [self._selectedRow]
         
+        # reduce to just one row
         df = dfAnalysis[dfAnalysis['file']==self._selectedFile]
+
+        # print('df gaussianSigma:')
+        # print(df['gaussianSigma'])
+        # print(df)
+
         self._analysisTable.myModel.mySetRow(rowList, df)
 
         # this is a full refresh of table
@@ -299,11 +351,18 @@ class oligoInterface(QtWidgets.QWidget):
         self._bHistogramWidget.setVisible(checked)
 
     def on_points_checkbox(self, state):
+        """Toggle napari viewer layer-table-plugin.
+        """
         logger.info(f'state:{state}')
-        
+        checked = state > 0
+        if self._layerTableDocWidget is not None:
+            self._layerTableDocWidget.setVisible(checked)
+
     def on_load_folder_button(self):
         logger.info('')
-    
+        folderPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST'
+        self.switchFolder(folderPath)
+
     def on_save_button(self):
         logger.info('')
         oa = self.getSelectedAnalysis()
@@ -311,24 +370,52 @@ class oligoInterface(QtWidgets.QWidget):
             return
         oa.save()
 
+        self.updateStatus(f'Saved analysis for file {oa.filename}')
+
     def on_edit_sigma(self):
-        text = self._sigmaLineWidget.text()
-        logger.info(f'text: {text}')
+        """Edit the gaussian sigma.
+        
+        This has two cases
+            1) scalar like 1 to apply to all image dimension dimensions
+            2) tuple like (1, .5, .5) to specify sigma per image dimension
+
+        Returns:
+            Either a float or a tuple. Will return NOne if text is invalid.
+        """
+        # get the current string
+        text = self._sigmaLineEditWidget.text()
+        logger.info(f'sigma text: {text}')
+        
         if ',' in text:
             # tuple
             #value = tuple(text)
             try:
                 text = text.replace('(', '')
                 text = text.replace(')', '')
+                text = text.replace('[', '')
+                text = text.replace(']', '')
                 value = [float(x) for x in text.split(',')]
-                value = tuple(value)
+                #value = tuple(value)
+                value = list(value)
             except (ValueError) as e:
-                logger.error('Plase enter a number or a list of numbers')
+                errStr = 'Please enter a number or a list of numbers like (z, y, x)'
+                self.updateStatus(errStr)
+                logger.error(errStr)
+                self._sigmaLineEditWidget.setText('1,1,1')
                 return
         else:
             # int
             value = float(text)
-        logger.info(f'  value:{type(value)} {value}')
+        logger.info(f'  gaussian sigma is now: {type(value)} {value}')
+        
+        if isinstance(value,list):
+            if len(value) != 3:
+                errStr = 'Please enter a list of 3 numbers (z, y, x)'
+                self.updateStatus(errStr)
+                logger.error(errStr)
+                self._sigmaLineEditWidget.setText('1,1,1')
+                return
+
         return value
 
     def on_make_red_mask(self):
@@ -347,6 +434,9 @@ class oligoInterface(QtWidgets.QWidget):
 
         # need to set sigma in oa._header['gaussianSigma']
         _gaussianSigma = self.on_edit_sigma()
+        if _gaussianSigma is None:
+            # we got a bad value, expecting a scalar or a list/tuple of (z, y, x)
+            return
         oa._header['gaussianSigma'] = _gaussianSigma
 
         # refresh interface
@@ -357,7 +447,9 @@ class oligoInterface(QtWidgets.QWidget):
         self._redFilteredLayer.data = _redImageFiltered  # oa.getImageMask('red')
 
         self.refreshAnalysisTable()
-        
+
+        self.updateStatus('Made red mask after gaussian filter and otsu threshold')
+
     def on_make_ring_mask(self, value):
         erodeIterations = self._erodeSpinBox.value()
         dilateIterations = self._dilateSpinBox.value()
@@ -381,6 +473,8 @@ class oligoInterface(QtWidgets.QWidget):
                                         erodeIterations=erodeIterations)
         if _dapiFinalMask is None:
             # happend when there is no cellpose mask from _seg.npy file
+            statusStr = f'Did not perform ring analysis, no cellpose dapi mask for file {oa.filename}'
+            self.updateStatus(statusStr)
             return
         
         oa._dapiFinalMask = _dapiFinalMask
@@ -389,16 +483,10 @@ class oligoInterface(QtWidgets.QWidget):
         self.refreshAnalysisTable()
         self.dapiFinalMask_layer.data = _dapiFinalMask
 
-    def old_on_table_selection(self, item : QtWidgets.QTableWidgetItem):
-        logger.info(item.row())
-        row = item.row()
-        rowDict = self._oligoAnalysisFolder.getRow(row)
-        
-        # print('  selected row dict is:')
-        # print(rowDict)
+        # TODO: refresh napari-layer-table
+        self._ltp.getTableView().mySetModel_from_df(oa._dfLabels)
 
-        filename = rowDict['file']
-        self.switchFile(filename)
+        self.updateStatus('Made ring mask from cellpose DAPI mask')
 
     def on_table_selection(self, rowList : List[int], isAlt : bool = False):
         """Respond to user selection in table (myTableView).
@@ -446,12 +534,19 @@ class oligoInterface(QtWidgets.QWidget):
         self._selectedFile = filename
 
         self._viewer.title = filename
-        
-        self.clearViewer()  # remove all layers
-        
+                
+        # get selected oa
         oa = self._oligoAnalysisFolder.getOligoAnalysis(filename)
-        self.displayOligoAnalysis(oa)
 
+        # complete refresh of napari viewer
+        self.clearViewer()  # remove all layers
+        self.displayOligoAnalysis_napari(oa)
+
+        # set gaussian sigma
+        _gaussianSigma = oa._header['gaussianSigma']
+        _gaussianSigma = str(_gaussianSigma)
+        self._sigmaLineEditWidget.setText(_gaussianSigma)
+        
         # set dilate/erode
         self._dilateSpinBox.setValue(oa._header['dilateIterations'])
         self._erodeSpinBox.setValue(oa._header['erodeIterations'])
@@ -467,29 +562,54 @@ class oligoInterface(QtWidgets.QWidget):
             self.closeLayerTablePlugin()
 
     def openLayerTablePugin(self, layer):
+        """Open a layer table plugin with specified layer.
+        
+        Args:
+            layer: napari points layer
+
+        Returns:
+            napari._qt.widgets.qt_viewer_dock_widget.QtViewerDockWidget
+        """
         onAddCallback = None
-        ltp = napari_layer_table.LayerTablePlugin(self._viewer, oneLayer=layer, onAddCallback=onAddCallback)
+        self._ltp = napari_layer_table.LayerTablePlugin(self._viewer, oneLayer=layer, onAddCallback=onAddCallback)
         #ltp.signalDataChanged.connect(on_user_edit_points2)
         
         # show
         area = 'right'
         name = layer.name
-        self._layerTableDocWidget = viewer.window.add_dock_widget(ltp, area=area, name=name)
+        
+        # napari._qt.widgets.qt_viewer_dock_widget.QtViewerDockWidget
+        _layerTableDocWidget = viewer.window.add_dock_widget(self._ltp, area=area, name=name)
+        
+        # see: https://forum.image.sc/t/can-i-remove-the-close-icon-when-i-create-a-dock-widget-in-the-viewer-with-add-dock-widget/67369/3
+        _layerTableDocWidget._close_btn = False
+
+        return _layerTableDocWidget
+
+    def openOligoAnalysisPlugin(self):
+        """Embed oligo analysis into napari viewer.
+        
+        I do not like this, takes up too much room.
+        """
+        area = 'bottom'
+        name = 'Oligo Analysis'
+        _docWidget = viewer.window.add_dock_widget(self, area=area, name=name)
+        return _docWidget
 
     def closeLayerTablePlugin(self):
         viewer.window.remove_dock_widget(self._layerTableDocWidget) 
         self._layerTableDocWidget = None
 
-    def displayOligoAnalysis(self, oa : oligoAnalysis):
+    def displayOligoAnalysis_napari(self, oa : oligoAnalysis):
         """Display all oligo analysis images in napari viewer.
         """
         self._buildingNapari = True
 
         viewer = self._viewer
         
-        imgRgb = oa._getRgbStack()
-        imgRed = oa._getRedChannel()
-        imgGreen = oa._getGreenChannel()
+        #imgRgb = oa._getRgbStack()
+        imgRed = oa.getImageChannel('red')
+        imgGreen = oa.getImageChannel('green')
         imgCellposeMask = oa.getCellPoseMask()  # can be None
         imgRed_binary = oa.getImageMask('red')
         imgRed_filtered = oa.getImageFiltered('red')
@@ -541,6 +661,7 @@ class oligoInterface(QtWidgets.QWidget):
 
             properties = {
                 'label': _label,
+                'accept': oa._dfLabels['accept'],
                 'redImageMaskPercent': oa._dfLabels['redImageMaskPercent'],
                 #'finalMaskCount': _finalMaskCount,
                 'area': _area,
@@ -554,26 +675,61 @@ class oligoInterface(QtWidgets.QWidget):
                                                 properties=properties)
 
             #
-            self.openLayerTablePugin(label_layer_points)
+            self._layerTableDocWidget = self.openLayerTablePugin(label_layer_points)
         
         # set histogram to red image layer (data and name)
+                # respond to changes in image contrast
         self._bHistogramWidget.slot_setData(imgRedLayer.data, imgRedLayer.name)
+        
+        # TODO: fix this
+        self._bHistogramWidget.signalContrastChange.connect(self.slot_contrastChange)
+        #print('imgRedLayer.events.contrast_limits:', imgRedLayer.events.contrast_limits) 
 
         self._buildingNapari = False
+
+    def slot_contrastChange(self, contrastDict):
+        # TODO: fix this
+        logger.info('')
+        #print(contrastDict)
+
+        # if napari viewer selected layer is image and mateches name
+        # directly set contrast_limmits = [min, max]
 
 if __name__ == '__main__':
     # cziPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST/B35_Slice2_RS_DS1.czi'
     # oa = oligoAnalysis(cziPath)
 
+    # for oligoInterface
+    folderPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST'
+    folderPath = None
+
     viewer = napari.Viewer()
 
-    folderPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST'
+    # get underlying qt QApplication
+    _app = napari.qt.get_app()  # PyQt5.QtWidgets.QApplication
+    # _app.processEvents()
+    #print('_app:', type(_app))
 
+    # set app to dark
+    _app.setStyleSheet(qdarkstyle.load_stylesheet())
+
+    # set app font size
+    logger.info(f'app font: {_app.font().family()} {_app.font().pointSize()}')
+    _fontSize = 12
+    aFont = QtGui.QFont('Arial', _fontSize)
+    _app.setFont(aFont, "QLabel")
+    #_app.setFont(aFont, "QComboBox")
+    _app.setFont(aFont, "QPushButton")
+    _app.setFont(aFont, "QCheckBox")
+    _app.setFont(aFont, "QSpinBox")
+    _app.setFont(aFont, "QDoubleSpinBox")
+    _app.setFont(aFont, "QTableView")
+    _app.setFont(aFont, "QToolBar")
+
+    # open interface with folder
     oi = oligoInterface(viewer, folderPath)
     oi.show()
 
     #oi.displayOligoAnalysis(oa)
-    
-    #oi.clearViewer()
 
     napari.run()

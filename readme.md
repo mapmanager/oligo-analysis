@@ -76,6 +76,7 @@ cellpose.io.add_model
 ## TODO
 
 #### Nov 3, 2022
+
  - [done] Add histogram widget. Re-use histogram from PyMapManager
  
  - Add 'accept' column to napari-layer-table. This will be the start of editing from the table!
@@ -89,6 +90,25 @@ cellpose.io.add_model
  - [done] make oligoAnalysis a package
 
  - make oligoanalysis a napari plugin
+
+#### Nov 4, 2022
+
+ - [done] make dark interface with qdarkstyle (see pymapmanager)
+ - [done] reduce font size (see pymapmanager)
+ - fix contrast slider signal/slot
+    when oligointerface  gets slot contrast changed, check selected layer name and that it is an image layer and directly call layer.contrast_limits = [min, max]
+ - when making oligoanalysis dataframe, pass entire df (all columns) and use hide() api to hide columns.
+    goal is to get copy() to copy entire dataframe
+ - in napari viewer, on edit 'accept', actually set oligo analysis label df
+ - [done] on file selection, set gaussian sigma
+ - implement 'set folder'
+ - expand loaded file types. Right now we only do czi. Whatever we load, we need to know the number of channels
+
+ - [done] in napari-layer-table, add api to set font size
+
+ - [hard] if we have a cellpose model, run the model of merged rgb
+
+ - rename repo to 'dapi-ring-analysis'. This is more general purpose than oligo
 
 
 ## As of Oct-31-2022, these are the installed python packages

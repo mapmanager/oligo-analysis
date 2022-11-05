@@ -39,6 +39,22 @@ class myTableView(QtWidgets.QTableView):
         # to allow click on already selected row
         self.clicked.connect(self.old_on_user_click_row)
 
+    def setFontSize(self, fontSize : int = 11):
+        """Set the table font size.
+        
+        This does not set the font size of cells, that is done in model data().
+        """
+        aFont = QtGui.QFont('Arial', fontSize)
+        self.setFont(aFont)  # set the font of the cells
+        self.horizontalHeader().setFont(aFont)
+        self.verticalHeader().setFont(aFont)
+
+        self.verticalHeader().setDefaultSectionSize(fontSize)  # rows
+        self.verticalHeader().setMaximumSectionSize(fontSize)
+        #self.horizontalHeader().setDefaultSectionSize(_fontSize)  # rows
+        #self.horizontalHeader().setMaximumSectionSize(_fontSize)
+        self.resizeRowsToContents()
+
     def keyPressEvent(self, event):
         logger.info('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
 

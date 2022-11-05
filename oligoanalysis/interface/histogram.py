@@ -271,6 +271,20 @@ class _histogram(QtWidgets.QWidget):
 #class bHistogramWidget(QtWidgets.QToolBar):
 class bHistogramWidget(QtWidgets.QWidget):
     signalContrastChange = QtCore.Signal(object) # (contrast dict)
+    """Signal emitted when user adjusts contrast sliders.
+    
+    Args:
+        contrastDict (dic) see _setDefaulContrastDict()
+    """
+
+    signal_contrast_limits = QtCore.Signal(object) # (contrast dict)
+    """Signal emitted when user adjusts contrast sliders.
+
+    This is to be connected to napari larer.events.contras_limits.
+
+    Args:
+        2 element list [min, max]
+    """
 
     def __init__(self,
                     imgData : np.ndarray,
@@ -316,6 +330,13 @@ class bHistogramWidget(QtWidgets.QWidget):
         self.slot_setSlice(self._sliceNumber)
 
     def slot_setData(self, imgData : np.ndarray, name : str = '', colorName : str = None):
+        """
+
+        Args:
+            imgData:
+            name:
+            colorName: Name of color LUT like 'r' or 'red'
+        """
         logger.info(f'imgData:{imgData.shape} {imgData.dtype}')
         self._imgData = imgData
         self._title = name
@@ -411,6 +432,9 @@ class bHistogramWidget(QtWidgets.QWidget):
     def slot_setSlice(self, sliceNumber):
         self._setSlice(sliceNumber)
 
+    def slot_setContrast(self, tmp):
+        logger.info(f'{tmp}')
+    
     def slot_contrastChanged(self, contrastDict):
         """Received from child _histogram.
         
@@ -418,6 +442,12 @@ class bHistogramWidget(QtWidgets.QWidget):
             contrastDict: dictionary for one channel.
         """
         self.signalContrastChange.emit(contrastDict)
+        
+        minMaxList = [
+            self._contrastDict[self._channel]['minContrast'],
+            self._contrastDict[self._channel]['maxContrast']
+        ]
+        self.signal_contrast_limits.emit(minMaxList)
 
     def _checkbox_callback(self, isChecked):
         sender = self.sender()

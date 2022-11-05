@@ -263,10 +263,39 @@ class pandasModel(QtCore.QAbstractTableModel):
             # on switching to v2, was giving error
             # our df has row indices matching the changed rows (same as rowList)
             #oneRow = df.loc[dfIdx]
-            oneRow = df.iloc[dfIdx]
-            
+            oneRow = df.iloc[dfIdx]  # oneRow is pandas.core.series.Series
+
+            # print('')
+            # print('  !!! SETTING !!!! type(oneRow):', type(oneRow))
+            # print('  dfIdx:', dfIdx, 'rowIdx:', rowIdx)
+            # print('oneRow:')
+            # print(oneRow)
+
+            # TODO: bug
+            # if one row has a cell that is not scaler, like tuple or list, this will be an error
             #IndexError: iloc cannot enlarge its target object
-            self._data.iloc[rowIdx] = oneRow  # needed because we are passed small df that changed
+            # was this
+            #self._data.iloc[rowIdx] = oneRow  # needed because we are passed small df that changed
+            for _column in df.columns:
+                # if _column=='gaussianSigma':
+                #     print('   ')
+                #     print('    setting _column:', _column)
+                #     print('    rowIdx:', rowIdx)
+                #     print('    orig col is:', self._data[_column])
+                #     print('    oneRow[_column] is', oneRow[_column], type(oneRow[_column]))
+                
+                if isinstance(oneRow[_column], tuple):
+                    # our tableview does not like tuple?
+                    # geting the dreaded:
+                    #    A value is trying to be set on a copy of a slice from a DataFrame
+                    #    See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy!
+                    oneRow.at[_column] = list(oneRow.at[_column])
+
+                self._data.at[rowIdx, _column] = oneRow[_column]
+
+                # if _column=='gaussianSigma':
+                #     print('AFTER SET:')
+                #     print(self._data.at[rowIdx, _column])
 
             startIdx = self.index(rowIdx, 0)  # QModelIndex
             #stopIdx = self.index(rowIdx, self._data.shape[1]-1)  # QModelIndex

@@ -32,6 +32,7 @@ setup(
             "ipython",
             "jupyter",
             # interface
+            "qdarkstyle",
             "pyqt5",
             "cellpose[gui]",
             "napari",
