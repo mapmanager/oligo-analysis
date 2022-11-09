@@ -1,0 +1,7 @@
+include LICENSE
+include readme.md
+
+include oligoanalysis/models/*
+
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
