@@ -4,6 +4,7 @@
 import os
 from pprint import pprint
 import json
+import enum
 
 import numpy as np
 import pandas as pd
@@ -19,16 +20,14 @@ import scipy.ndimage
 
 from aicsimageio import AICSImage
 
-from oligoanalysis.loadCzi import loadCziHeader  # , loadFolder
+#from oligoanalysis.loadCzi import loadCziHeader  # , loadFolder
+from oligoanalysis.loadCzi import _loadHeader
 from oligoanalysis._logger import logger
 from oligoanalysis import oligoUtils
 
-# import enum
-# class imageTypes(enum.Enum):
-#     rgb = '.tif'
-#     cellposeDapiMask = '_seg.npy'
-#     header = '-header.json'
-#     labelAnalysis = '-labels.csv'
+class imageChannels(enum.Enum):
+    dapi = 'dapi'
+    cyto = 'cyto'
 
 class oligoAnalysis():
     def __init__(self, path : str, xyScaleFactor : float = 0.25):
@@ -38,7 +37,7 @@ class oligoAnalysis():
             xyScaleFactor: fraction to zoom x/y
                 cellpose wants nuclei to be ~10 pixels but our are ~30 pixels
         """
-        logger.info(f'path: {path} xyScaleFactor:{xyScaleFactor}')
+        #logger.info(f'path: {path} xyScaleFactor:{xyScaleFactor}')
         
         if not os.path.isfile(path):
             raise ValueError(f'Did not find raw image file: {path}')
@@ -47,15 +46,21 @@ class oligoAnalysis():
         # full path to raw image file (czi file)
 
         # default header
-        self._header : dict = loadCziHeader(path)
-        self._header['cell pose'] = ''  # if we have a cell pose _seg.pny file
+        #self._header : dict = loadCziHeader(path)
+        self._header : dict = _loadHeader(path)
+        
+        self._header['dapiChannel'] = 1
+        self._header['cytoChannel'] = 0
+
+        self._header['cellpose'] = ''  # if we have a cell pose _seg.pny file
+        self._header['num labels'] = ''  # if we have a cell pose _seg.pny file
         self._header['xyScaleFactor'] = xyScaleFactor
         #
         self._header['gaussianSigma'] = 1  # can be scalar like 1 or tuple like (z,y,x)
         self._header['otsuThreshold'] = None
-        self._header['numStackPixels'] = None
-        self._header['numMaskPixels'] = None
-        self._header['maskPercent'] = None
+        self._header['dapiStackPixels'] = None
+        self._header['dapiMaskPixels'] = None
+        self._header['dapiMaskPercent'] = None
         #
         self._header['erodeIterations'] = 1
         self._header['dilateIterations'] = 1
@@ -65,7 +70,7 @@ class oligoAnalysis():
         # update header if we have a cellpose _seg.npy file
         hasCellPose = os.path.isfile(self._getCellPoseDapiMaskPath())
         if hasCellPose:
-            self._header['cell pose'] = 'Yes'
+            self._header['cellpose'] = 'Yes'
             
         self._dfLabels : pd.DataFrame = self.loadLabelDf()
         # Created in analizeOligoDapi()
@@ -87,7 +92,25 @@ class oligoAnalysis():
         # after threshold the gaussian filtered image (_redImageFiltered)
 
         self._isLoaded = False
-        # True if raw images have been loaded
+        # True if raw images have been loaded, see load()
+
+    @property
+    def dapiChannel(self):
+        return self._header['dapiChannel']
+       
+    # a setter function
+    @dapiChannel.setter
+    def dapiChannel(self, channel):
+        self._header['dapiChannel'] = channel
+
+    @property
+    def cytoChannel(self):
+        return self._header['cytoChannel']
+       
+    # a setter function
+    @cytoChannel.setter
+    def cytoChannel(self, channel):
+        self._header['cytoChannel'] = channel
 
     def getBaseSaveFile(self) -> str:
         """Get the base save file stub.
@@ -139,6 +162,9 @@ class oligoAnalysis():
     
     def load(self):
         """Load images.
+
+        If we fail to find saved files, we will perform analysis.
+
         """
 
         self._rgbStack = self._getRgbStack()
@@ -148,14 +174,17 @@ class oligoAnalysis():
         self._cellPoseMask = self.getCellPoseMask()
         # Output of cellpose in _seg.npy
 
-        # _dict, self._redImageMask = self.makeImageMask()
-        self._redImageMask = self.loadImageMask('red')
-        if self._redImageMask is None:
-            self.analyzeImageMask('red')
+        if self._cellPoseMask is not None:
+            self._header['num labels'] = len(np.unique(self._cellPoseMask))
 
-        self._redImageFiltered = self.loadImageFiltered('red')
+        # _dict, self._redImageMask = self.makeImageMask()
+        self._redImageMask = self.loadImageMask(imageChannels.cyto)
+        if self._redImageMask is None:
+            self.analyzeImageMask(imageChannels.cyto)
+
+        self._redImageFiltered = self.loadImageFiltered(imageChannels.cyto)
         if self._redImageFiltered is None:
-            self.analyzeImageMask('red')
+            self.analyzeImageMask(imageChannels.cyto)
 
         # analyze with ring
         self._dapiFinalMask = self.loadDapiFinalMask()
@@ -177,11 +206,11 @@ class oligoAnalysis():
         self.saveLabelDf()
 
         if self._redImageMask is not None:
-            maskPath = self._getImageMaskPath('red')
+            maskPath = self._getImageMaskPath(imageChannels.cyto)
             tiffile.imsave(maskPath, self._redImageMask)
 
         if self._redImageFiltered is not None:
-            filteredPath = self._getImageFilteredPath('red')
+            filteredPath = self._getImageFilteredPath(imageChannels.cyto)
             tiffile.imsave(filteredPath, self._redImageFiltered)
 
         self.saveDapiFinalMask()
@@ -216,7 +245,7 @@ class oligoAnalysis():
         if not os.path.isfile(headerPath):
             # no header to load
             return
-        logger.info(f'loading header json: {headerPath}')
+        #logger.info(f'loading header json: {headerPath}')
         with open(headerPath, 'r') as f:
             self._header = json.load(f)
 
@@ -245,9 +274,9 @@ class oligoAnalysis():
         dapiFinalMaskPath = self._getDapiFinalMaskPath()
         
         if not os.path.isfile(dapiFinalMaskPath):
-            logger.info(f'did not find dapi_final_mask: {dapiFinalMaskPath}')
+            #logger.info(f'did not find dapi_final_mask: {dapiFinalMaskPath}')
             return
-        logger.info(f'loading dapi_final_mask: {dapiFinalMaskPath}')
+        #logger.info(f'loading dapi_final_mask: {dapiFinalMaskPath}')
         dapiFinalMask = tiffile.imread(dapiFinalMaskPath)
         return dapiFinalMask
 
@@ -275,7 +304,7 @@ class oligoAnalysis():
         dfPath = self._getLabelFilePath()
         if not os.path.isfile(dfPath):
             return
-        logger.info(f'loading label df: {dfPath}')
+        #logger.info(f'loading label df: {dfPath}')
         df = pd.read_csv(dfPath)
         return df
 
@@ -305,15 +334,16 @@ class oligoAnalysis():
             os.mkdir(_saveFolder)
         
         # each raw tif/czi go into a different folder
-        _cellFolder = os.path.splitext(_file)[0]
-        _cellFolder = os.path.join(_saveFolder, _cellFolder)
+        #_cellFolder = os.path.splitext(_file)[0]
+        # use full file name with extension for folder, this way folders are uunique files
+        _cellFolder = os.path.join(_saveFolder, _file)
         if not os.path.isdir(_cellFolder):
             logger.info(f'making analysis folder for file "{_file}": {_cellFolder}')
             os.mkdir(_cellFolder)
 
         return _cellFolder
 
-    def _getImageMaskPath(self, channelStr : str) -> str:
+    def _getImageMaskPath(self, imageChannel : imageChannels) -> str:
         """Get the full path to an image mask.
         
         This file ends in -mask-{channelStr}.tif
@@ -322,10 +352,10 @@ class oligoAnalysis():
             channelStr: in ['red', 'green']
         """
         maskPath = self.getBaseSaveFile()
-        maskPath += f'-mask-{channelStr}.tif'
+        maskPath += f'-mask-{imageChannel.value}.tif'
         return maskPath
 
-    def _getImageFilteredPath(self, channelStr : str) -> str:
+    def _getImageFilteredPath(self, imageChannel : imageChannels) -> str:
         """Get the full path to a (gaussian) filtered image.
         
         This file ends in -filtered-{channelStr}.tif
@@ -334,10 +364,10 @@ class oligoAnalysis():
             channelStr: In ['red', 'green']
         """
         filteredPath = self.getBaseSaveFile()
-        filteredPath += f'-filtered-{channelStr}.tif'
+        filteredPath += f'-filtered-{imageChannel.value}.tif'
         return filteredPath
 
-    def getImageChannel(self, channelStr : str) -> np.ndarray:
+    def getImageChannel(self, imageChannel : imageChannels) -> np.ndarray:
         """Get an image (color) channel from rgb stack.
         
         Args:
@@ -345,10 +375,10 @@ class oligoAnalysis():
 
         Assuming rgb stack has channel order (slice, y, x, channel)
         """
-        if channelStr=='red':
-            return self._rgbStack[:, :, :, 0]
-        if channelStr=='green':
-            return self._rgbStack[:, :, :, 1]
+        if imageChannel == imageChannels.cyto:
+            return self._rgbStack[:, :, :, self.cytoChannel]  # 0
+        if imageChannel == imageChannels.dapi:
+            return self._rgbStack[:, :, :, self.dapiChannel]  # 1
 
     def _getRgbStack(self) -> np.ndarray:
         """Load or make an rgb stack from raw file.
@@ -358,13 +388,13 @@ class oligoAnalysis():
         rgbSavePath = self._getRgbPath()
 
         if os.path.isfile(rgbSavePath):
-            logger.info(f'Loading rgb stack: {rgbSavePath}')
+            #logger.info(f'Loading rgb stack: {rgbSavePath}')
             _rgbStack =  tiffile.imread(rgbSavePath)
         else:
             img = AICSImage(self._path)
             imgData = img.get_image_data("ZYXC", T=0)
             # imgData is like: (21, 784, 784, 2)
-            logger.info(f'loaded imgData: {imgData.shape}')
+            logger.info(f'loaded raw imgData: {imgData.shape}')
 
             # convert to 8 bit, we need to do each channel to maximize histogram
             imgData_ch1 = imgData[:,:,:,0]
@@ -404,27 +434,27 @@ class oligoAnalysis():
         """
         cellPoseSegPath = self._getCellPoseDapiMaskPath()
         if os.path.isfile(cellPoseSegPath):
-            #self._header['cell pose'] = 'Yes'
+            #self._header['cellpose'] = 'Yes'
             pass
         else:
-            logger.warning(f'Did not find cellpose _seg.npy file:')
-            logger.warning(f'You need to run a model in cellpose on the 3d rgb stack.')
-            logger.warning(f'    {cellPoseSegPath}')
+            logger.warning(f'Did not find cellpose _seg.npy file {os.path.split(cellPoseSegPath)[1]}:')
+            logger.warning(f'  You need to run a model in cellpose on the 3d rgb stack.')
+            #logger.warning(f'    {cellPoseSegPath}')
             return
         dat = np.load(cellPoseSegPath, allow_pickle=True).item()
         masks = dat['masks']
 
         return masks
 
-    def getImageMask(self, channelStr : str)  -> np.ndarray:
-        if channelStr=='red':
+    def getImageMask(self, imageChannel : imageChannels)  -> np.ndarray:
+        if imageChannel == imageChannels.cyto:
             return self._redImageMask
 
-    def getImageFiltered(self, channelStr : str)  -> np.ndarray:
-        if channelStr=='red':
+    def getImageFiltered(self, imageChannel)  -> np.ndarray:
+        if imageChannel == imageChannels.cyto:
             return self._redImageFiltered
 
-    def loadImageMask(self, channelStr : str) -> np.ndarray:
+    def loadImageMask(self, imageChannel : imageChannels) -> np.ndarray:
         """Load the filtered thresholded binary mask.
 
         Args:
@@ -432,14 +462,14 @@ class oligoAnalysis():
 
         Created in analyzeImageMask()
         """
-        maskPath = self._getImageMaskPath(channelStr)
+        maskPath = self._getImageMaskPath(imageChannel)
         if os.path.isfile(maskPath):
             # load
-            logger.info(f'Loading image mask "{self.filename}" {channelStr} {maskPath}')
+            #logger.info(f'Loading image mask "{self.filename}" {imageChannel.value} {maskPath}')
             imgData_binary = tiffile.imread(maskPath)
             return imgData_binary
 
-    def loadImageFiltered(self, channelStr : str) -> np.ndarray:
+    def loadImageFiltered(self, imageChannel : imageChannels) -> np.ndarray:
         """Load the (gaussian) filtered image.
         
         Args:
@@ -447,14 +477,14 @@ class oligoAnalysis():
 
         Created in analyzeImageMask()
         """
-        maskPath = self._getImageFilteredPath(channelStr)
+        maskPath = self._getImageFilteredPath(imageChannel)
         if os.path.isfile(maskPath):
             # load
-            logger.info(f'Loading image filtered "{self.filename}" {channelStr} {maskPath}')
+            #logger.info(f'Loading image filtered "{self.filename}" {imageChannel.value} {maskPath}')
             imgData_binary = tiffile.imread(maskPath)
             return imgData_binary
 
-    def analyzeImageMask(self, channelStr : str):
+    def analyzeImageMask(self, imageChannel : imageChannels):
         """Create a binary image mask.
             - Gaussian blur
             - Otsu threshold
@@ -465,11 +495,11 @@ class oligoAnalysis():
         Assigns:
             self._redImageMask
         """
-        imgData = self.getImageChannel(channelStr)
+        imgData = self.getImageChannel(imageChannel)
 
         _gaussianSigma = self._header['gaussianSigma']
         
-        logger.info(f'{self.filename} channelStr:{channelStr} _gaussianSigma:{_gaussianSigma}')
+        logger.info(f'{self.filename} imageChannel:{imageChannel.value} _gaussianSigma:{_gaussianSigma}')
         
         otsuThreshold, imgData_blurred, imgData_binary = \
             oligoUtils.getOtsuThreshold(imgData, sigma=_gaussianSigma)
@@ -487,11 +517,11 @@ class oligoAnalysis():
         self._header['numMaskPixels'] = numMaskPixels
         self._header['maskPercent'] = maskPercent
 
-        if channelStr=='red':
+        if imageChannel == imageChannel.cyto:
             self._redImageMask = imgData_binary
             self._redImageFiltered = imgData_blurred
-        elif channelStr=='green':
-            logger.warning(f'not implemented for channelStr {channelStr}')
+        elif imageChannel == imageChannels.dapi:
+            logger.warning(f'not implemented for imageChannel {imageChannel.value}')
 
         return imgData_binary, imgData_blurred
 
@@ -585,8 +615,8 @@ class oligoAnalysis():
             oneDict = {
                 'label': maskLabel,
                 'finalMaskCount': finalMaskCount,  # num pixels in dilated mask
-                'redImageMaskSum': np.sum(redImageMask),  # sum of red mask in dilated dapi mask
-                'redImageMaskPercent': redImageMaskPercent,  # fraction of pixels in red mask in dilated mask
+                'cytoImageMaskSum': np.sum(redImageMask),  # sum of red mask in dilated dapi mask
+                'cytoImageMaskPercent': redImageMaskPercent,  # fraction of pixels in red mask in dilated mask
                 'accept': '',  # '' indicates False
             }
             listOfDict.append(oneDict)

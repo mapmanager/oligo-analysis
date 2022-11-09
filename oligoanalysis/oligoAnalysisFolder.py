@@ -8,6 +8,40 @@ from oligoanalysis import loadCzi
 from oligoanalysis.oligoAnalysis import oligoAnalysis
 from oligoanalysis._logger import logger
 
+from oligoanalysis._cellpose import runModelOnImage
+from cellpose.io import logger_setup
+
+def batchRunFolder(folderPath : str):
+    """Run cellpose on an entire folder.
+    
+    This takes some time but is neccessary to make analysis easier.
+    """
+    
+    logger_setup()  # will clear .cellpose/run.log
+    
+    oaf = oligoAnalysisFolder(folderPath)
+    df = oaf.getDataFrame()
+    files = df['file'].tolist()
+    for idx, file in enumerate(files):
+        logger.info('\n')
+        logger.info(f'=== {idx}/{len(files)-1} Fetching oligo analysis for file {file}')
+        
+        oa = oaf.getOligoAnalysis(file, loadImages=False)
+        
+        rgbStackPath = oa._getRgbPath()
+        rgbStack = oa._getRgbStack()  # np.ndarrray
+        
+        #logger.info(f'  oligoanalysis rgbStack for cellpose shape is: {rgbStack.shape}')
+
+        # the raw czi file
+        # imgPath = os.path.join(folderPath, file)
+        
+        # here, imgPath is only used to determine where to save
+        runModelOnImage(imgPath=rgbStackPath, imgData=rgbStack, setupLogger=False)
+
+        # TODO: unload oligoAnalysis
+        oa = None  # does this free memory ?
+
 class oligoAnalysisFolder():
 
     def __init__(self, folderPath : str = None):
@@ -20,16 +54,22 @@ class oligoAnalysisFolder():
         # Full path to raw scope stack
 
         self._dfFolder = self._loadAllFileHeader()
-        # DataFrame of files in _folderPath
+        # DataFrame of headers for files in _folderPath
 
         self._analysisList = {}  #[None] * len(self._dfFolder)
+        # dictionary of per file analysis
+        # keys are filename, values are oligoAnalysis
 
         # load oligo analysis headers
-        files = self._dfFolder['file'].tolist()
-        for file in files:
-            logger.info(f'  loading file header for: {file}')
-            filePath = os.path.join(self._folderPath, file)
-            self._analysisList[file] = oligoAnalysis(filePath)
+        if len(self._dfFolder)==0:
+            logger.warning(f'No valid image files in folder: {self._folderPath}')
+        else:
+            files = self._dfFolder['file'].tolist()
+            for file in files:
+                #logger.info(f'  loading file header for: {file}')
+                filePath = os.path.join(self._folderPath, file)
+                self._analysisList[file] = oligoAnalysis(filePath)
+            logger.info(f'Loaded {len(files)} oligoAnalysis files.')
 
     def getDataFrame(self):
         """Get the dataframe of loaded file headers.
@@ -69,17 +109,21 @@ class oligoAnalysisFolder():
         df = self._dfFolder.loc[row]
         return df.to_dict()
     
-    def getOligoAnalysis(self, file : str):
+    def getOligoAnalysis(self, file : str, loadImages = True):
         """Given a raw file name, return the oligoAnalysis.
         
         Make if necc.
+
+        Args:
+            file:
+            loadImages:
         """
-        logger.info(f'file:{file}')
+        #logger.info(f'file:{file}')
         if file in self._analysisList.keys():
             oa = self._analysisList[file]
-            if not oa.isLoaded():
+            if loadImages and not oa.isLoaded():
                 oa.load()
-            logger.info(f'  returning: {oa}')
+            #logger.info(f'  returning: {oa}')
             return oa
         else:
             # NOT TAKEN
@@ -97,7 +141,7 @@ class oligoAnalysisFolder():
     def _loadAllFileHeader(self):
         """Load all file headers in folder.
         """
-        logger.info(f'Loading folder: {self._folderPath}')
+        #logger.info(f'Loading folder: {self._folderPath}')
         df = loadCzi.loadFolder(self._folderPath)
         return df
 
@@ -111,4 +155,8 @@ def check_OligoAnalysisFolder():
     oa = oaf.getOligoAnalysis('')
 
 if __name__ == '__main__':
-    check_OligoAnalysisFolder()
+    #check_OligoAnalysisFolder()
+    
+    #folderPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST'
+    folderPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/Morphine'
+    batchRunFolder(folderPath)

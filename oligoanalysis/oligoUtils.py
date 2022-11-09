@@ -1,6 +1,7 @@
 """
 20221101
 """
+import os
 
 import numpy as np
 
@@ -19,7 +20,7 @@ def getOtsuThreshold(imgData : np.ndarray, sigma):
     #sigma = 1
 
     logger.info(f'imgData {imgData.shape} sigma:{sigma}')
-    printStack(imgData, 'getOtsuThreshold')
+    #printStack(imgData, 'getOtsuThreshold')
 
     # gaussian blur
     imgData_blurred = gaussian(imgData, sigma=sigma)

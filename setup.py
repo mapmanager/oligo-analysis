@@ -18,6 +18,7 @@ setup(
     #    'pymapmanager',
     #    'pymapmanager.mmio'
     #],
+    include_package_data=True,
     install_requires=[
             "numpy",
             "pandas",
@@ -29,17 +30,20 @@ setup(
             "aicspylibczi>=3.0.5",
             "fsspec>=2022.7.1",
             # dev
-            "ipython",
-            "jupyter",
+            #"ipython",
+            #"jupyter",
             # interface
             "qdarkstyle",
-            "pyqt5",
-            "cellpose[gui]",
+            #"pyqt5",
+            "qtpy",
+            #"cellpose[gui]",
             "napari",
+            #"cellpose-napari",
             "pyqtgraph",
             # for now, install locally with pip (in a dev branch)
             #napari_layer_table
-            "plotly",
+            #"plotly",
+            "cellpose",
     ],
 )
 

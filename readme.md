@@ -110,7 +110,11 @@ cellpose.io.add_model
 
  - rename repo to 'dapi-ring-analysis'. This is more general purpose than oligo
 
+#### Nov 6 - back in Sac
 
+ - Need to switch my naming of channels. Use 'DAPI' and 'CYTO' instead of 'green' and 'red'?
+
+ 
 ## As of Oct-31-2022, these are the installed python packages
 
 ```

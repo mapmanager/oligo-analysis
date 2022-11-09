@@ -8,13 +8,20 @@ from datetime import datetime
 
 import pandas as pd
 
+import tiffile
+
 from aicsimageio import AICSImage
 from aicspylibczi import CziFile
 
 from oligoanalysis._logger import logger
 
-def loadFolder(folderPath):
+loadFileTypes = ['.czi', '.tif', '.oir']
+
+def loadFolder(folderPath) -> pd.DataFrame:
     """Load headers for a folder of czi files.
+    
+    Returns:
+        pd.DataFrame of file headers, one per row
     """
     _folder, parentFolder = os.path.split(folderPath)
 
@@ -23,12 +30,15 @@ def loadFolder(folderPath):
     headerList = []
     #sumSlices = 0
     for file in fileList:
-        if not file.endswith('.czi'):
+        _filestub, _ext = os.path.splitext(file)
+        if not _ext in loadFileTypes:
             continue
         filePath = os.path.join(folderPath, file)
-        header = loadCziHeader(filePath)
+
+        #header = loadCziHeader(filePath)
+        header = _loadHeader(filePath)
         
-        zPixels = header['zPixels']
+        #zPixels = header['zPixels']
 
         # header['firstSlice_mask'] = sumSlices
         # header['lastSlice_mask'] = sumSlices + zPixels - 1
@@ -41,6 +51,108 @@ def loadFolder(folderPath):
 
     df = pd.DataFrame(headerList)
     return df
+
+def _loadHeader(path : str) -> dict:
+    """Load an image stack header using AICSImageIO.
+    """
+    #logger.info(f'{path}')
+    
+    img = AICSImage(path)  # selects the first scene found
+
+    xVoxel = img.physical_pixel_sizes.X
+    yVoxel = img.physical_pixel_sizes.Y
+    zVoxel = img.physical_pixel_sizes.Z
+
+    #print(os.path.split(path)[1], xVoxel, type(xVoxel))
+
+    xPixels = img.dims.X
+    yPixels = img.dims.Y
+    zPixels = img.dims.Z
+
+    _parentFolder, _ = os.path.split(path)
+    _, _parentFolder = os.path.split(_parentFolder)
+    
+    _date = ''
+    _time = ''
+
+    _header = {
+        'file': os.path.split(path)[1],
+        'parentFolder': _parentFolder,
+        'date': _date,
+        'time': _time,
+        'xPixels': xPixels,
+        'yPixels': yPixels,
+        'zPixels': zPixels,
+        'xVoxel': xVoxel,
+        'yVoxel': yVoxel,
+        'zVoxel': zVoxel,
+    }
+
+    return _header
+
+def _loadTif(path):
+    """Load from a tif
+    
+    This is the 100th time I have tried this :(
+    """
+    # img = AICSImage(path)  # selects the first scene found
+    # xVoxel = img.physical_pixel_sizes.X
+    # yVoxel = img.physical_pixel_sizes.Y
+    # zVoxel = img.physical_pixel_sizes.Z
+    # print('ome tif zVoxel:', zVoxel)
+
+    with tiffile.TiffFile(path) as tif:
+        volume = tif.asarray()  # (10, 2, 784, 784)
+        axes = tif.series[0].axes  # ZCYX
+        
+        # print('tif.series[0]:', tif.series[0])
+        # print('    axes:', tif.series[0].axes)
+        # print('    dims:', tif.series[0].dims)
+        # print('    attr:', tif.series[0].attr)
+
+        page0 = tif.pages[0]
+        
+        # print('page0.tags:')
+        # print(page0.tags)
+        
+        try:
+            _XResolution = page0.tags['XResolution']
+            xVoxel = _XResolution.value[1] / _XResolution.value[0]
+            print('xVoxel:', xVoxel)
+        except (KeyError) as e:
+            xVoxel = 1
+            logger.warning("Did not find 'XResolution' key in tif.pages[0].tags")
+
+        try:
+            _YResolution = page0.tags['YResolution']
+            yVoxel = _YResolution.value[1] / _YResolution.value[0]
+            print('yVoxel:', yVoxel)
+        except (KeyError) as e:
+            yVoxel = 1
+            logger.warning("Did not find 'YResolution' key in tif.pages[0].tags")
+
+        imagej_metadata = tif.imagej_metadata
+
+        if imagej_metadata is not None:
+            try:
+                zVoxel = imagej_metadata['spacing']
+            except (KeyError) as e:
+                zVoxel = 1
+                logger.warning("Did not find 'spacing' key imagej_metadata['spacing']")
+
+    # HUGE
+    # pprint(imagej_metadata)
+    print('volume:', volume.shape, volume.dtype)
+    print('axes:', axes, type(axes))
+
+    slices = imagej_metadata['slices']
+    
+    try:
+        channels = imagej_metadata['channels']
+    except (KeyError) as e:
+        logger.warning('imagej_metadata["channels"] does not exist')
+    
+    unit = imagej_metadata['unit']
 
 def loadCziHeader(cziPath : str) -> dict:
     """Load header from a czi file.
@@ -122,7 +234,13 @@ if __name__ == '__main__':
     # header = loadCzi(cziPath)
     # pprint(header)
 
-    folderPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST'
-    dfFolder = loadFolder(folderPath)
+    # folderPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST'
+    # dfFolder = loadFolder(folderPath)
+    # print(dfFolder)
 
-    print(dfFolder)
+    # a czi saved as tif in Fiji/ImageJ
+    tifPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST/G22_Slice2_RS_DS5.tif'
+    tifPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST/Untitled-1-channel.tif'
+    tifPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST/rgb.tif'
+    tifPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST/Composite.tif'
+    _loadTif(tifPath)

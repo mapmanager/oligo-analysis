@@ -22,6 +22,7 @@ import napari_layer_table  # our custom plugin (installed from source)
 import oligoanalysis.oligoUtils
 from oligoanalysis import oligoAnalysis
 from oligoanalysis import oligoAnalysisFolder
+from oligoanalysis import imageChannels
 
 from oligoanalysis.interface import myTableView
 from oligoanalysis.interface._data_model import pandasModel
@@ -104,7 +105,7 @@ class oligoInterface(QtWidgets.QWidget):
 
         # this is a full refresh of table
         if self._oligoAnalysisFolder is not None:
-            dfAnalysis = self._oligoAnalysisFolder.getAnalysisDataFrame(removeColumns=True)
+            dfAnalysis = self._oligoAnalysisFolder.getAnalysisDataFrame(removeColumns=False)
             myModel = pandasModel(dfAnalysis)
             self._analysisTable.mySetModel(myModel)
 
@@ -228,10 +229,6 @@ class oligoInterface(QtWidgets.QWidget):
         aButton.clicked.connect(self.on_load_folder_button)
         hLayout.addWidget(aButton, alignment=_alignLeft)
 
-        aButton = QtWidgets.QPushButton('Save')
-        aButton.clicked.connect(self.on_save_button)
-        hLayout.addWidget(aButton, alignment=_alignLeft)
-
         # checkboxes to toggle interface
         aCheckbox = QtWidgets.QCheckBox('Histogram')
         aCheckbox.setChecked(False)
@@ -267,13 +264,15 @@ class oligoInterface(QtWidgets.QWidget):
         # red mask
         hLayout = QtWidgets.QHBoxLayout()
 
-        aButton = QtWidgets.QPushButton('Make Red Mask')
+        aButton = QtWidgets.QPushButton('Make Cyto Mask')
+        aButton.setToolTip('Make a binary mask from the "cyto" channel')
         aButton.clicked.connect(self.on_make_red_mask)
         hLayout.addWidget(aButton, alignment=_alignLeft)
 
         aLabel = QtWidgets.QLabel('Gaussian Sigma')
         hLayout.addWidget(aLabel)
         self._sigmaLineEditWidget = QtWidgets.QLineEdit('1')
+        self._sigmaLineEditWidget.setToolTip('Either a single number of a list of z,y,x')
         self._sigmaLineEditWidget.editingFinished.connect(self.on_edit_sigma)
         hLayout.addWidget(self._sigmaLineEditWidget, alignment=_alignLeft)
 
@@ -281,7 +280,8 @@ class oligoInterface(QtWidgets.QWidget):
 
         # ring mask
         #hLayout = QtWidgets.QHBoxLayout()
-        aButton = QtWidgets.QPushButton('Make Ring Mask')
+        aButton = QtWidgets.QPushButton('Make DAPI Ring Mask')
+        aButton.setToolTip('Make and analyze a DAPI ring mask')
         aButton.clicked.connect(self.on_make_ring_mask)
         hLayout.addWidget(aButton, alignment=_alignLeft)
 
@@ -300,6 +300,15 @@ class oligoInterface(QtWidgets.QWidget):
         self._dilateSpinBox.setValue(1)
         # self._dilateSpinBox.valueChanged.connect(self.on_edit_erode_dilate)
         hLayout.addWidget(self._dilateSpinBox, alignment=_alignLeft)
+
+        aButton = QtWidgets.QPushButton('Run Model')
+        aButton.setToolTip('Run pre-made model on 3D RGB stack')
+        aButton.clicked.connect(self.on_run_model)
+        hLayout.addWidget(aButton, alignment=_alignLeft)
+
+        aButton = QtWidgets.QPushButton('Save')
+        aButton.clicked.connect(self.on_save_button)
+        hLayout.addWidget(aButton, alignment=_alignLeft)
 
         hLayout.addStretch()  # required for alignment=_alignLeft 
 
@@ -344,6 +353,13 @@ class oligoInterface(QtWidgets.QWidget):
         # this is a full refresh of table
         # myModel = pandasModel(dfAnalysis)
         # self._analysisTable.mySetModel(myModel)
+
+    def on_run_model(self):
+        oa = self.getSelectedAnalysis()
+        if oa is None:
+            return
+        rgbPath = oa._getRgbPath()
+        oligoanalysis.runModelOnImage(rgbPath)
 
     def on_histogram_checkbox(self, state):
         logger.info(f'state:{state}')
@@ -442,13 +458,13 @@ class oligoInterface(QtWidgets.QWidget):
         # refresh interface
         logger.info(f'fetching new red mask with sigma: {_gaussianSigma}')
 
-        _redImageMask, _redImageFiltered = oa.analyzeImageMask('red')
+        _redImageMask, _redImageFiltered = oa.analyzeImageMask(imageChannels.cyto)
         self._redbinaryLayer.data = _redImageMask  # oa.getImageMask('red')
         self._redFilteredLayer.data = _redImageFiltered  # oa.getImageMask('red')
 
         self.refreshAnalysisTable()
 
-        self.updateStatus('Made red mask after gaussian filter and otsu threshold')
+        self.updateStatus('Made Cyto mask after gaussian filter and otsu threshold')
 
     def on_make_ring_mask(self, value):
         erodeIterations = self._erodeSpinBox.value()
@@ -608,11 +624,11 @@ class oligoInterface(QtWidgets.QWidget):
         viewer = self._viewer
         
         #imgRgb = oa._getRgbStack()
-        imgRed = oa.getImageChannel('red')
-        imgGreen = oa.getImageChannel('green')
+        imgCyto = oa.getImageChannel(imageChannels.cyto)
+        imgGreen = oa.getImageChannel(imageChannels.dapi)
         imgCellposeMask = oa.getCellPoseMask()  # can be None
-        imgRed_binary = oa.getImageMask('red')
-        imgRed_filtered = oa.getImageFiltered('red')
+        imgCyto_binary = oa.getImageMask(imageChannels.cyto)
+        imgCyto_filtered = oa.getImageFiltered(imageChannels.cyto)
         dapiFinalMask = oa._dapiFinalMask  # can be None
         
         #viewer = napari.Viewer()
@@ -622,29 +638,29 @@ class oligoInterface(QtWidgets.QWidget):
 
         scale = (zVoxel, yVoxel, xVoxel)
 
-        imgRedLayer = viewer.add_image(imgRed, name='imgRed', scale=scale, blending='additive')
-        imgRedLayer.colormap = 'red'
-        imgRedLayer.contrast_limits = (0, 100)
+        imgCytoLayer = viewer.add_image(imgCyto, name='Cyto Image', scale=scale, blending='additive')
+        imgCytoLayer.colormap = 'red'
+        imgCytoLayer.contrast_limits = (0, 100)
 
-        imgGreenLayer = viewer.add_image(imgGreen, name='imgGreen', scale=scale, blending='additive')
+        imgGreenLayer = viewer.add_image(imgGreen, name='DAPI Image', scale=scale, blending='additive')
         imgGreenLayer.colormap = 'green'
         imgGreenLayer.contrast_limits = (0, 150)
 
         # we want to be able to update this image
-        self._redbinaryLayer = viewer.add_labels(imgRed_binary, name='imgRed_binary', scale=scale)
+        self._redbinaryLayer = viewer.add_labels(imgCyto_binary, name='Cyto Binary', scale=scale)
 
-        self._redFilteredLayer = viewer.add_image(imgRed_filtered, name='imgRed_filtered', scale=scale, blending='additive')
+        self._redFilteredLayer = viewer.add_image(imgCyto_filtered, name='Cyto Filtered', scale=scale, blending='additive')
         self._redFilteredLayer.colormap = 'red'
         #self._redFilteredLayer.contrast_limits = (0, 150)
 
         # we will not update this, until we add runnign a model (slow)
         if imgCellposeMask is not None:
-            imgMask_layer = viewer.add_labels(imgCellposeMask, name='imgCellposeMask', scale=scale)
+            imgMask_layer = viewer.add_labels(imgCellposeMask, name='DAPI Cellpose Mask', scale=scale)
             
         # we want to be able to update this image
         if dapiFinalMask is None:
             dapiFinalMask = np.zeros((1,1,1), dtype=np.uint64)
-        self.dapiFinalMask_layer = viewer.add_labels(dapiFinalMask, name='dapiFinalMask', scale=scale)
+        self.dapiFinalMask_layer = viewer.add_labels(dapiFinalMask, name='DAPI Ring Mask', scale=scale)
         
         #
         # make a pnts layer from labels
@@ -662,13 +678,14 @@ class oligoInterface(QtWidgets.QWidget):
             properties = {
                 'label': _label,
                 'accept': oa._dfLabels['accept'],
-                'redImageMaskPercent': oa._dfLabels['redImageMaskPercent'],
+                'cytoImageMaskPercent': oa._dfLabels['cytoImageMaskPercent'],
                 #'finalMaskCount': _finalMaskCount,
                 'area': _area,
             }
 
             # add points to viewer
             label_layer_points = viewer.add_points(_points,
+                                                name='DAPI label points',
                                                 #face_color=face_color,
                                                 symbol='cross',
                                                 size=5,
@@ -679,11 +696,11 @@ class oligoInterface(QtWidgets.QWidget):
         
         # set histogram to red image layer (data and name)
                 # respond to changes in image contrast
-        self._bHistogramWidget.slot_setData(imgRedLayer.data, imgRedLayer.name)
+        self._bHistogramWidget.slot_setData(imgCytoLayer.data, imgCytoLayer.name)
         
         # TODO: fix this
         self._bHistogramWidget.signalContrastChange.connect(self.slot_contrastChange)
-        #print('imgRedLayer.events.contrast_limits:', imgRedLayer.events.contrast_limits) 
+        #print('imgCytoLayer.events.contrast_limits:', imgCytoLayer.events.contrast_limits) 
 
         self._buildingNapari = False
 
@@ -701,7 +718,8 @@ if __name__ == '__main__':
 
     # for oligoInterface
     folderPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST'
-    folderPath = None
+    folderPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/Morphine'
+    #folderPath = None
 
     viewer = napari.Viewer()
 
