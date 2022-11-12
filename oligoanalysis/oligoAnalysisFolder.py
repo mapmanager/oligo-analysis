@@ -83,7 +83,7 @@ class oligoAnalysisFolder():
             removeColumns: If True, remove some columns to make more concise
         """
         removeColumnList = ['xPixels', 'yPixels',
-            'yVoxel', 'xyScaleFactor', 'numStackPixels', 'numMaskPixels']
+            'yVoxel', 'xyScaleFactor', 'oligoStackPixels', 'oligoMaskPixels']
         
         dictList = []
         for k,v in self._analysisList.items():
@@ -125,18 +125,18 @@ class oligoAnalysisFolder():
                 oa.load()
             #logger.info(f'  returning: {oa}')
             return oa
-        else:
-            # NOT TAKEN
-            filePath = os.path.join(self._folderPath, file)
-            #try:
-            if 1:
-                print(f'  creating oligo analysis for filePath: {filePath}')
-                oneAnalysis = oligoAnalysis(filePath)
-                print('    oneAnalysis:', oneAnalysis)
-                self._analysisList[file] = oneAnalysis
-                return self._analysisList[file]
-            # except (ValueError) as e:
-            #     logger.error(e)
+        # else:
+        #     # NOT TAKEN
+        #     filePath = os.path.join(self._folderPath, file)
+        #     #try:
+        #     if 1:
+        #         print(f'  creating oligo analysis for filePath: {filePath}')
+        #         oneAnalysis = oligoAnalysis(filePath)
+        #         print('    oneAnalysis:', oneAnalysis)
+        #         self._analysisList[file] = oneAnalysis
+        #         return self._analysisList[file]
+        #     # except (ValueError) as e:
+        #     #     logger.error(e)
 
     def _loadAllFileHeader(self):
         """Load all file headers in folder.
@@ -157,6 +157,15 @@ def check_OligoAnalysisFolder():
 if __name__ == '__main__':
     #check_OligoAnalysisFolder()
     
-    #folderPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST'
-    folderPath = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/Morphine'
-    batchRunFolder(folderPath)
+    folderPath0 = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/FST'
+    folderPath1 = '/Users/cudmore/Dropbox/data/whistler/data-oct-10/Morphine'
+    
+    folderPath2 = '/Users/cudmore/Dropbox/data/whistler/11-9-22 (Adolescent and Saline)/Adolescent'
+    folderPath3 = '/Users/cudmore/Dropbox/data/whistler/11-9-22 (Adolescent and Saline)/Saline'
+    
+    #folderPathList = [folderPath2, folderPath3]
+
+    folderPathList = [folderPath0]
+
+    for folderPath in folderPathList:
+        batchRunFolder(folderPath)

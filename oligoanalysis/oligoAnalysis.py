@@ -5,6 +5,7 @@ import os
 from pprint import pprint
 import json
 import enum
+from typing import List, Union  # , Callable, Iterator, Optional
 
 import numpy as np
 import pandas as pd
@@ -46,26 +47,31 @@ class oligoAnalysis():
         # full path to raw image file (czi file)
 
         # default header
-        #self._header : dict = loadCziHeader(path)
+        # load header from raw image stack (czi)
         self._header : dict = _loadHeader(path)
         
         self._header['dapiChannel'] = 1
         self._header['cytoChannel'] = 0
 
+        self._header['dapiMinInt'] = np.nan # assigned in analyzeIntensity
+        self._header['dapiMaxInt'] = np.nan
+        self._header['cytoMinInt'] = np.nan
+        self._header['cytoMaxInt'] = np.nan
+
         self._header['cellpose'] = ''  # if we have a cell pose _seg.pny file
-        self._header['num labels'] = ''  # if we have a cell pose _seg.pny file
+        self._header['num labels'] = ''  # number of labels if we have a cell pose _seg.pny file
         self._header['xyScaleFactor'] = xyScaleFactor
         #
         self._header['gaussianSigma'] = 1  # can be scalar like 1 or tuple like (z,y,x)
         self._header['otsuThreshold'] = None
-        self._header['dapiStackPixels'] = None
-        self._header['dapiMaskPixels'] = None
-        self._header['dapiMaskPercent'] = None
+        self._header['cytoStackPixels'] = None
+        self._header['cytoMaskPixels'] = None
+        self._header['cytoMaskPercent'] = None
         #
         self._header['erodeIterations'] = 1
         self._header['dilateIterations'] = 1
         
-        self.loadHeader()  # assigns self._header
+        self.loadHeader()  # load previously saved, assigns self._header
 
         # update header if we have a cellpose _seg.npy file
         hasCellPose = os.path.isfile(self._getCellPoseDapiMaskPath())
@@ -93,6 +99,22 @@ class oligoAnalysis():
 
         self._isLoaded = False
         # True if raw images have been loaded, see load()
+
+    def setLabelRowAccept(self, rowList : List[int], df : pd.DataFrame):
+        """
+        
+        Notes:
+            we get a dataframe with only rows in rowList
+                do not use index like iloc, use loc or at
+        """
+        logger.info(f'rowList:{rowList}')
+        logger.info(f'{df}')
+        
+        acceptValues = df.loc[rowList]['accept'].values
+        print(f'  acceptValues: {type(acceptValues)} {acceptValues.shape} "{acceptValues}"')
+
+        for idx, row in enumerate(rowList):
+            self._dfLabels.at[row, 'accept'] = acceptValues[idx]
 
     @property
     def dapiChannel(self):
@@ -175,6 +197,7 @@ class oligoAnalysis():
         # Output of cellpose in _seg.npy
 
         if self._cellPoseMask is not None:
+            # need to update the table
             self._header['num labels'] = len(np.unique(self._cellPoseMask))
 
         # _dict, self._redImageMask = self.makeImageMask()
@@ -236,7 +259,13 @@ class oligoAnalysis():
         headerPath = self._getHeaderFilePath()
         logger.info(f'saving header json: {headerPath}')
         with open(headerPath, 'w') as f:
-            json.dump(self._header, f, indent=4)
+            try:
+                json.dump(self._header, f, indent=4)
+            except (TypeError) as e:
+                logger.error(f'Did not save header')
+                logger.error(f'{e}')
+                logger.error(f'{headerPath}')
+                logger.error(self._header)
 
     def loadHeader(self):
         """Load image header as json.
@@ -245,9 +274,26 @@ class oligoAnalysis():
         if not os.path.isfile(headerPath):
             # no header to load
             return
-        #logger.info(f'loading header json: {headerPath}')
+
+        #logger.info(f'{headerPath}')
+        
+        # only load keys we already have in self._header
+        _loadedHeader = None
         with open(headerPath, 'r') as f:
-            self._header = json.load(f)
+            try:
+                _loadedHeader = json.load(f)
+            except (json.decoder.JSONDecodeError) as e:
+                logger.error(e)
+
+        if _loadedHeader is None:
+            logger.error(f'Loading header failed')
+            logger.error(f'headerPath: {headerPath}')
+        else:
+            for k in self._header.keys():
+                try:
+                    self._header[k] = _loadedHeader[k]
+                except (KeyError) as e:
+                    logger.warning(f'Did not find key "{k}" in loaded header')
 
     def _getHeaderFilePath(self) -> str:
         """Get path to save/load header.
@@ -387,7 +433,10 @@ class oligoAnalysis():
         """
         rgbSavePath = self._getRgbPath()
 
-        if os.path.isfile(rgbSavePath):
+        doNotLoad = True # on flight to sfn2022
+        logger.info(f'SFN NOT LOADING, REGENERATING _rgbStack EACH TIME')
+
+        if not doNotLoad and os.path.isfile(rgbSavePath):
             #logger.info(f'Loading rgb stack: {rgbSavePath}')
             _rgbStack =  tiffile.imread(rgbSavePath)
         else:
@@ -400,11 +449,14 @@ class oligoAnalysis():
             imgData_ch1 = imgData[:,:,:,0]
             imgData_ch2 = imgData[:,:,:,1]
 
-            imgData_ch1 = oligoUtils.getEightBit(imgData_ch1)
-            imgData_ch2 = oligoUtils.getEightBit(imgData_ch2)
+            # oligoUtils.printStack(imgData_ch1, ' . raw imgData_ch1')
+            # oligoUtils.printStack(imgData_ch2, ' . raw imgData_ch2')
 
-            oligoUtils.printStack(imgData_ch1, '8-bit imgData_ch1')
-            oligoUtils.printStack(imgData_ch2, '8-bit imgData_ch2')
+            imgData_ch1 = oligoUtils.getEightBit(imgData_ch1, maximizeHistogram=False)
+            imgData_ch2 = oligoUtils.getEightBit(imgData_ch2, maximizeHistogram=False)
+            
+            # oligoUtils.printStack(imgData_ch1, ' . 8-bit imgData_ch1')
+            # oligoUtils.printStack(imgData_ch2, ' . 8-bit imgData_ch2')
             
             # make rgb stack, assuming we loaded 'ZYXC'
             _shape = imgData.shape
@@ -420,7 +472,16 @@ class oligoAnalysis():
             xyScaleFactor = self._header['xyScaleFactor']
             _zoom = (1, xyScaleFactor, xyScaleFactor, 1)
             _rgbStack = zoom(_rgbStack, _zoom)
-            oligoUtils.printStack(_rgbStack, 'after zoom _rgbStack')
+            oligoUtils.printStack(_rgbStack, f'after zoom by {xyScaleFactor}, _rgbStack')
+
+            # get the min/max of each channel
+            # need to cast to int() because np return uint8 which is not json serliazable
+            dapiImg = _rgbStack[:, :, :, self.dapiChannel]
+            self._header['dapiMinInt'] = int(np.min(dapiImg))
+            self._header['dapiMaxInt'] = int(np.max(dapiImg))
+            cytoImg = _rgbStack[:, :, :, self.cytoChannel]
+            self._header['cytoMinInt'] = int(np.min(cytoImg))
+            self._header['cytoMaxInt'] = int(np.max(cytoImg))
 
             logger.info(f'  saving rgb stack: {rgbSavePath}')
             tiffile.imwrite(rgbSavePath, _rgbStack)
@@ -483,7 +544,7 @@ class oligoAnalysis():
             #logger.info(f'Loading image filtered "{self.filename}" {imageChannel.value} {maskPath}')
             imgData_binary = tiffile.imread(maskPath)
             return imgData_binary
-
+        
     def analyzeImageMask(self, imageChannel : imageChannels):
         """Create a binary image mask.
             - Gaussian blur
@@ -512,10 +573,11 @@ class oligoAnalysis():
         logger.info(f'  -- RESULTS: otsuThreshold:{otsuThreshold} maskPercent:{maskPercent}')
 
         #self._header['gaussianSigma'] = numStackPixels
+        _chStr = imageChannel.value
         self._header['otsuThreshold'] = otsuThreshold
-        self._header['numStackPixels'] = numStackPixels
-        self._header['numMaskPixels'] = numMaskPixels
-        self._header['maskPercent'] = maskPercent
+        self._header[f'{_chStr}StackPixels'] = numStackPixels
+        self._header[f'{_chStr}MaskPixels'] = numMaskPixels
+        self._header[f'{_chStr}MaskPercent'] = maskPercent
 
         if imageChannel == imageChannel.cyto:
             self._redImageMask = imgData_binary
@@ -623,13 +685,6 @@ class oligoAnalysis():
             
         self._dfLabels = pd.DataFrame(listOfDict)
         
-        # these are the dapi masks with a good amount of red
-        # redImageMaskPercent_threshold = 5
-        # print('\nredImageMaskPercent_threshold:', redImageMaskPercent_threshold)
-        # print('Using this threshold, we have the following DAPI mask candidates')
-        # print('. e.g. the ones with a lot of Oligo red)')
-        # print(self._dfLabels[self._dfLabels['redImageMaskPercent']>=redImageMaskPercent_threshold])
-
         return dapi_final_mask
 
 def check_OligoAnalysis():

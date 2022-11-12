@@ -39,7 +39,20 @@ Make sure this is in my local dev branch
 pip install ../napari-layer-table/.
 ```
 
+## Running our pre-trained cellpose models on new image data
+
+We have created some pre-trained models, they are in the `models/` folder.
+
+To run the models on new image data and save a cellpose _seg.npy file, use `batchRunFolder()` in `oligoAnalysis/oligoAnalysisFolder.py`
+
+This is required before you can **fully** use the main interface in `oligoanalysis/interface/oligoInterface.py`.
+
+
 ## Read datetime from czi
+
+I have given up on this. When we switch to loading other files other than Zeiss czi, it won't work.
+
+My original goal here was to load the date/time of image acquisition.
 
 ```
 from aicsimageio import AICSImage

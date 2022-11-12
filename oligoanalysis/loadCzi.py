@@ -58,7 +58,7 @@ def _loadHeader(path : str) -> dict:
     #logger.info(f'{path}')
     
     img = AICSImage(path)  # selects the first scene found
-
+    
     xVoxel = img.physical_pixel_sizes.X
     yVoxel = img.physical_pixel_sizes.Y
     zVoxel = img.physical_pixel_sizes.Z

@@ -152,7 +152,7 @@ class myTableView(QtWidgets.QTableView):
         # refresh hidden columns, only usefull when we first build interface
         self._refreshHiddenColumns()
 
-    def mySetColumnHidden(self, colStr : str, hidden : bool):
+    def mySetColumnHidden(self, colStr : str, hidden : bool = True):
         if hidden:
             self.hiddenColumnSet.add(colStr)  # will not add twice
         else:

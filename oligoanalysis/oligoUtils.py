@@ -34,11 +34,20 @@ def getOtsuThreshold(imgData : np.ndarray, sigma):
 
     return otsuThreshold, imgData_blurred, imgData_binary
 
-def getEightBit(imgData : np.ndarray) -> np.ndarray:
+def getEightBit(imgData : np.ndarray, maximizeHistogram = False) -> np.ndarray:
     """Convert an image to 8-bit np.uint8
     """
-    imgData = imgData / np.max(imgData) * 255
-    imgData = imgData.astype(np.uint8)
+    
+    
+    if maximizeHistogram:
+        # this will maximize range (might not be good)
+        imgData = imgData / np.max(imgData) * 255
+        imgData = imgData.astype(np.uint8)        
+    else:
+        # assuming czi files are 2**16, just divide by 2**8
+        imgData = imgData / 2**8
+        imgData = imgData.astype(np.uint8)
+ 
     return imgData
 
 def printStack(imgData : np.ndarray, name : str = ''):
